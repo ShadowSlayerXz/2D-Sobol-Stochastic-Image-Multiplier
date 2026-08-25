@@ -19,5 +19,4 @@ class SobolGenerator
         uint32_t stateY;// fr storing the current raw 32-bit sobol state for the x coordinate
         uint32_t index;// fr storing the current position in teh sobol sequence and to determine which direction no will be used next
         static int rightmostZeroBit(uint32_t k); //finds the position of the rightmost zero bit  so next() knows which direction no to XOR into the state
-
-}
+};
