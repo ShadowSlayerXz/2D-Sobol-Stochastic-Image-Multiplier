@@ -95,3 +95,13 @@ add_test(NAME test_image_path COMMAND test_image_path)
 # Rotation de-correlation, operation-aware correlation and selection-bias experiments.
 add_executable(run_extra src/extra_experiments.cpp)
 target_link_libraries(run_extra PRIVATE sobol)
+
+# Optional OpenCV baseline (stochastic vs cv::multiply). Built only if OpenCV is installed.
+find_package(OpenCV QUIET)
+if(OpenCV_FOUND)
+  add_executable(opencv_compare src/opencv_compare.cpp)
+  target_include_directories(opencv_compare PRIVATE ${OpenCV_INCLUDE_DIRS})
+  target_link_libraries(opencv_compare PRIVATE sobol ${OpenCV_LIBS})
+else()
+  message(STATUS "OpenCV not found: opencv_compare will not be built")
+endif()
