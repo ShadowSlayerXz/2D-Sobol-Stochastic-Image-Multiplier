@@ -99,7 +99,7 @@ Full pipeline (Sobol generation + encoding + table + lookup), 500x500x3 image, m
 | 1024 | 6.5 | 4.9 | 0.68 | 0.19 | 0.134 | 0.166 |
 
 (direct columns from an earlier run of the same program; they were ~2.7 / ~6.5 ms in every run.) Best configuration
-is 8 threads (the 6800H has 8 physical cores / 16 logical): **roughly 25-50x faster than the direct path**, and
+is 8 threads (the 6800H has 8 physical cores / 16 logical): **roughly 20-50x faster than the direct path**, and
 output remains identical.
 
 **OpenCV `cv::multiply`** (OpenCV 4.13.0 from MSYS2, scale 1/255, same image): **0.134-0.137 ms**, exact result. It gives
