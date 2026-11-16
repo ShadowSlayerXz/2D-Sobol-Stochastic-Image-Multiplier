@@ -67,13 +67,21 @@ this pair at N >= 128 but not for random streams at N <= 256, and it was only te
 
 ### AVX2 vs scalar (`results/timing.csv`; 500x500x3 channels, 3 warm-up + 15 timed reps)
 
-AND+popcount stage, mean ms (std in the CSV): N=128: scalar 1.98 / AVX2 2.51; N=256: 2.64 / 2.73;
-N=1024: 6.09 / 4.32. Scalar and AVX2 outputs were **byte-identical** for every pair, method and length,
+AND+popcount stage, mean ms (std in the CSV), latest run: N=128: scalar 2.01 / AVX2 2.43; N=256: 2.57 / 2.83;
+N=1024: 6.06 / 4.27 (three separate runs gave the same pattern). Scalar and AVX2 outputs were **byte-identical** for every pair, method and length,
 and `test_avx2_kernel` checks all 65 536 level pairs at N = 128/256/1024. **AVX2 only wins at N = 1024
 (~29 % faster stage time); at N <= 256 it is slower or equal**, because the hardware `popcnt` on 64-bit
 words is already cheap and one 256-bit vector (N = 256) or none (N = 128: tail only) does not amortise the
 horizontal sum. Stream encoding/packing (0.05-0.45 ms) and Sobol generation (< 0.01 ms) are negligible next
 to the AND+popcount stage. One machine, one compiler, one run: treat the exact ratios as indicative.
+
+### OpenCV baseline (OpenCV 4.13.0 from MSYS2, `cv::multiply` with scale 1/255, same 500x500x3 image)
+
+`cv::multiply`: **0.131 ms** mean (std 0.003, 15 reps), output identical to the exact product (MAE 0). That is about
+20x faster than the stochastic AND+popcount stage at N = 256 (~2.6 ms) and ~46x faster at N = 1024 (~6 ms, scalar).
+The software stochastic multiplier is therefore **not** competitive with an optimised binary multiply on a CPU;
+its case is the hardware area/energy argument (see `docs/hardware_mapping.md`), not software speed. (OpenCV is
+SIMD-optimised and may use several threads; thread count was not controlled.)
 
 ### Rotation de-correlation (`results/rotation.csv`, N = 256, test grid 0.1..0.9)
 
@@ -112,8 +120,6 @@ an improvement over a plain digital shift.
 
 ## What could not be run / known limits
 
-* **OpenCV baseline**: code is written (`SC_HAVE_OPENCV`) but OpenCV is not installed here, so it was never
-  compiled or timed. The conventional baseline reported is the scalar integer multiply (~0.6 ms/image).
 * **Kodak / McMaster batch runs**: batch mode works (tested on the repo's 2 real x 4 synthetic images) but
   those datasets are not in the repo and were not downloaded.
 * **Linux/WSL, other CPUs, MSVC/Clang**: only the Windows/MinGW GCC build above was run.
