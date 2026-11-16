@@ -19,7 +19,7 @@
 #include <cstdio>
 #include <random>
 #include <string>
-#include <sys/stat.h>
+#include <filesystem>
 
 namespace {
 
@@ -157,7 +157,7 @@ void printRow(const Row& r) {
 
 int main(int argc, char** argv) {
     std::string outDir = argc > 1 ? argv[1] : "results";
-    mkdir(outDir.c_str(), 0755);
+    std::filesystem::create_directories(outDir);
 
     const std::vector<double> test = testGrid(), cal = calibrationGrid();
     Objective obj;   // alpha = beta = 1
@@ -224,7 +224,7 @@ int main(int argc, char** argv) {
             std::fprintf(f, "%s,%s,%d,%d,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.4g,%.4g\n",
                          r.stage.c_str(), r.config.c_str(), r.n, r.trials, r.mean.absScc, r.mean.absPearson,
                          r.mean.mae, r.mean.mse, r.mean.emult, r.mean.hamming, r.mean.autocorr, r.mean.disc,
-                         r.maeStd, r.nsPerPoint, r.selectMs);
+                         r.maeStd, 1.96 * r.maeStd / std::sqrt(static_cast<double>(r.trials)), r.nsPerPoint, r.selectMs);
         std::fclose(f);
         std::printf("wrote %s (%zu rows)\n\n", csvPath.c_str(), rows.size());
     }
