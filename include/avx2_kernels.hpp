@@ -32,4 +32,7 @@ bool avx2Supported();   // compiled AND the running CPU reports AVX2 + POPCNT
 AndPopcountFn kernelFor(KernelPath path);
 KernelPath effectivePath(KernelPath requested);
 KernelPath bestPath();
+// Fastest kernel for streams of `words` 64-bit words, from the measurements in README: the AVX2 nibble-LUT
+// popcount only beats 64-bit hardware popcnt once there are >= 8 words (N >= 512).
+AndPopcountFn tunedKernel(int words);
 const char* pathName(KernelPath path);

@@ -81,6 +81,9 @@ else()
   message(STATUS "OpenCV not found: baseline skipped (optional)")
 endif()
 
+find_package(Threads REQUIRED)
+target_link_libraries(sobol PUBLIC Threads::Threads)
+
 add_executable(test_avx2_kernel tests/test_avx2_kernel.cpp)
 target_link_libraries(test_avx2_kernel PRIVATE sobol)
 add_test(NAME test_avx2_kernel COMMAND test_avx2_kernel)

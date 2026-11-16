@@ -57,5 +57,6 @@ KernelPath effectivePath(KernelPath requested) {
 AndPopcountFn kernelFor(KernelPath path) {
     return effectivePath(path) == KernelPath::AVX2 ? andPopcountAvx2 : andPopcountScalar;
 }
+AndPopcountFn tunedKernel(int words) { return words >= 8 ? kernelFor(KernelPath::AVX2) : andPopcountScalar; }
 KernelPath bestPath() { return effectivePath(KernelPath::AVX2); }
 const char* pathName(KernelPath path) { return path == KernelPath::AVX2 ? "avx2" : "scalar"; }

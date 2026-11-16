@@ -44,6 +44,20 @@ int main() {
         }
     }
 
+    // 2b) fast bank construction == the exact definition bit k of level L: ref_k*255 < L*2^32
+    for (int n : {64, 128, 1000}) {
+        RefPair rp = fromRandom(n, 5);
+        StreamBank bk = buildBank(rp.x);
+        long bad = 0;
+        for (int L = 0; L < 256; L++)
+            for (int k = 0; k < n; k++) {
+                bool want = static_cast<uint64_t>(rp.x[k]) * 255u < (static_cast<uint64_t>(L) << 32);
+                bool got = (bk.at(L)[k / 64] >> (k % 64)) & 1;
+                if (want != got) bad++;
+            }
+        CHECK(bad == 0, "buildBank mismatches the exact definition at N=%d: %ld bits", n, bad);
+    }
+
     // 3) identical output images through the whole multiplier
     Image A, B; A.w = B.w = 64; A.h = B.h = 48;
     A.px.resize(64 * 48 * 3); B.px.resize(64 * 48 * 3);

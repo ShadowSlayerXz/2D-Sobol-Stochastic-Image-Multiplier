@@ -154,6 +154,41 @@ void timePath(const std::string& pair, const Image& A, const Image& B, int n, Ke
     emit("lut_product", tLut); emit("full_pipeline_lut", tFullLut);
 }
 
+bool g_fastMismatch = false;
+
+// Optimised pipeline: fast bank build, tuned kernel, multithreaded LUT build + lookup, reused buffers.
+void timeFast(const std::string& pair, const Image& A, const Image& B, int n, int threads,
+              std::ofstream& csv, const std::string& envPrefix) {
+    ThreadPool pool(threads);
+    AndPopcountFn kernel = tunedKernel((n + 63) / 64);
+    std::vector<uint8_t> lut(256 * 256);
+    Image out = A;
+    std::vector<double> tEnc, tLut, tLook, tFull;
+    RefPair ref = fromSobol(SobolConfig{}, n);
+    Image check = stochasticProduct(A, B, buildBank(ref.x), buildBank(ref.y), kernelFor(KernelPath::Scalar));
+    bool same = true;
+    for (int r = -WARMUPS; r < REPS * 3; r++) {
+        auto t0 = Clock::now();
+        RefPair rp = fromSobol(SobolConfig{}, n);
+        StreamBank ba = buildBank(rp.x), bb = buildBank(rp.y);
+        double e = msSince(t0);
+        t0 = Clock::now(); buildProductLutInto(ba, bb, kernel, lut.data(), &pool); double l = msSince(t0);
+        t0 = Clock::now(); lookupProduct(A.px.data(), B.px.data(), out.px.data(), A.px.size(), lut.data(), &pool); double k = msSince(t0);
+        if (r >= 0) { tEnc.push_back(e); tLut.push_back(l); tLook.push_back(k); tFull.push_back(e + l + k); }
+        if (out.px != check.px) same = false;
+    }
+    std::string label = "avx2+lut+" + std::to_string(threads) + "thr";
+    auto emit = [&](const char* stage, const std::vector<double>& v) {
+        TimeStats t = summarize(v);
+        csv << envPrefix << pair << "," << n << "," << label << "," << label << "," << stage << ","
+            << t.reps << "," << t.mean << "," << t.min << "," << t.max << "," << t.std << "\n";
+        std::printf("  N=%-5d %-14s %-19s mean %9.3f  min %9.3f  max %9.3f  std %8.3f ms\n", n, label.c_str(), stage, t.mean, t.min, t.max, t.std);
+    };
+    emit("gen+encode_pack", tEnc); emit("lut_build", tLut); emit("lookup", tLook); emit("full_pipeline_fast", tFull);
+    if (!same) std::fprintf(stderr, "FAST PATH MISMATCH N=%d threads=%d\n", n, threads);
+    g_fastMismatch = g_fastMismatch || !same;
+}
+
 #ifdef SC_HAVE_OPENCV
 void timeOpenCV(const std::string& pair, const Image& A, const Image& B, const Image& exact,
                 std::ofstream& csv, const std::string& envPrefix) {
@@ -168,7 +203,16 @@ void timeOpenCV(const std::string& pair, const Image& A, const Image& B, const I
     ImageStats s = compareImages(o, exact);
     TimeStats ts = summarize(t);
     csv << envPrefix << pair << ",0,opencv,opencv,cv_multiply," << ts.reps << "," << ts.mean << "," << ts.min << "," << ts.max << "," << ts.std << "\n";
-    std::printf("  OpenCV cv::multiply: mean %.3f ms (MAE vs exact %.3f)\n", ts.mean, s.mae);
+    std::printf("  OpenCV cv::multiply: mean %.3f ms (MAE vs exact %.3f), cv::getNumThreads()=%d\n", ts.mean, s.mae, cv::getNumThreads());
+    for (int th : {1, 8}) {                                // also report with a fixed thread count
+        cv::setNumThreads(th); std::vector<double> t2;
+        for (int r = -WARMUPS; r < REPS; r++) { auto t0 = Clock::now(); cv::multiply(ma, mb, out, 1.0 / 255.0); double ms = msSince(t0); if (r >= 0) t2.push_back(ms); }
+        TimeStats s2 = summarize(t2);
+        std::printf("  OpenCV cv::multiply with %d thread(s): mean %.3f ms (min %.3f)\n", th, s2.mean, s2.min);
+        std::string label = "opencv_" + std::to_string(th) + "thr";
+        csv << envPrefix << pair << ",0," << label << "," << label << ",cv_multiply," << s2.reps << "," << s2.mean << "," << s2.min << "," << s2.max << "," << s2.std << "\n";
+    }
+    cv::setNumThreads(-1);
 }
 #endif
 
@@ -226,6 +270,7 @@ bool runPair(const std::string& name, const Image& A, const Image& B, const std:
         for (int n : lengths) {
             timePath(name, A, B, n, KernelPath::Scalar, timingCsv, envPrefix);
             timePath(name, A, B, n, KernelPath::AVX2, timingCsv, envPrefix);
+            for (int th : {1, 4, 8, 16}) timeFast(name, A, B, n, th, timingCsv, envPrefix);
         }
 #ifdef SC_HAVE_OPENCV
         timeOpenCV(name, A, B, exact, timingCsv, envPrefix);
@@ -309,5 +354,6 @@ int main(int argc, char** argv) {
     }
     std::printf("\nScalar and AVX2 outputs %s for every method/length.\n", ok ? "were byte-identical" : "DIFFERED (BUG)");
     std::printf("Wrote %s/image_metrics.csv, %s/timing.csv and images under %s/images/\n", outDir.c_str(), outDir.c_str(), outDir.c_str());
+    if (g_fastMismatch) { std::printf("FAST PATH OUTPUT DIFFERED FROM REFERENCE (BUG)\n"); ok = false; }
     return ok ? 0 : 1;
 }

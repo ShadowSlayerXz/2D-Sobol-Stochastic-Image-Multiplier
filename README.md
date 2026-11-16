@@ -75,23 +75,44 @@ words is already cheap and one 256-bit vector (N = 256) or none (N = 128: tail o
 horizontal sum. Stream encoding/packing (0.05-0.45 ms) and Sobol generation (< 0.01 ms) are negligible next
 to the AND+popcount stage. One machine, one compiler, one run: treat the exact ratios as indicative.
 
-### Lookup-table optimisation (bit-identical output)
+### CPU optimisation (bit-identical output) and the OpenCV comparison
 
-The product of a channel depends only on its (a, b) level pair, so `buildProductLut()` computes all 65 536
-results once with the AND+popcount kernel and `stochasticProductLut()` does one table read per pixel
-(`lut_product` / `full_pipeline_lut` rows in `timing.csv`; `test_avx2_kernel` and `image_demo` check the output equals the
-direct path). Stage time, mean ms, scalar kernel (AVX2 kernel in the LUT build is within ~0.03 ms at N <= 256, ~0.2 ms faster at N = 1024):
-N=128: 2.17 -> 1.01; N=256: 2.57 -> 1.05; N=1024: 6.10 -> 1.39. Full pipeline at N=1024: 6.54 -> 1.84 ms (scalar), 4.90 -> 1.65 ms (AVX2).
-This is ~2.5x (N=256) to ~4.4x (N=1024) faster, but still ~7-10x slower than `cv::multiply` (0.14 ms). It is a
-software shortcut: it does not change the stochastic result or the hardware design.
+Optimisations, all producing byte-for-byte the same image as the direct AND+popcount path (checked by
+`test_avx2_kernel` and on every `image_demo` run):
 
-### OpenCV baseline (OpenCV 4.13.0 from MSYS2, `cv::multiply` with scale 1/255, same 500x500x3 image)
+1. **Product lookup table** (`buildProductLutInto` / `lookupProduct`): the result depends only on the (a, b) level
+   pair, so compute all 65 536 results once with the AND+popcount kernel, then do one table read per pixel.
+2. **Fast stream encoding** (`buildBank`): put each bit at the first level where it turns on, then prefix-OR across
+   levels: O(N + 256*W) instead of O(256*N). Encoding no longer shows up in the profile.
+3. **Count->level table** instead of an integer divide per table entry; **tuned kernel** (`tunedKernel`: AVX2 popcount
+   only when >= 8 words, i.e. N >= 512; hardware popcnt otherwise); **reused buffers** (no per-call allocation).
+4. **`__restrict` in the lookup loop**: the `uint8_t*` pointers could alias, so the compiler reloaded constantly; adding
+   `restrict` cut the single-thread lookup pass from 1.08 ms to 0.35 ms (found by profiling).
+5. **Thread pool** (`include/thread_pool.hpp`) splitting table build and lookup over 4/8/16 threads.
 
-`cv::multiply`: **0.131 ms** mean (std 0.003, 15 reps), output identical to the exact product (MAE 0). That is about
-20x faster than the stochastic AND+popcount stage at N = 256 (~2.6 ms) and ~46x faster at N = 1024 (~6 ms, scalar).
-The software stochastic multiplier is therefore **not** competitive with an optimised binary multiply on a CPU;
-its case is the hardware area/energy argument (see `docs/hardware_mapping.md`), not software speed. (OpenCV is
-SIMD-optimised and may use several threads; thread count was not controlled.)
+Full pipeline (Sobol generation + encoding + table + lookup), 500x500x3 image, mean ms (std in `timing.csv`):
+
+| N | direct AND+popcount, scalar | direct, AVX2 | LUT, 1 thread | LUT, 4 thr | LUT, 8 thr | LUT, 16 thr |
+|---|---|---|---|---|---|---|
+| 128 | 2.2 | 2.6 | 0.52 | 0.14 | 0.105 | 0.125 |
+| 256 | 2.7 | 3.0 | 0.58 | 0.15 | 0.105 | 0.129 |
+| 1024 | 6.5 | 4.9 | 0.68 | 0.19 | 0.134 | 0.166 |
+
+(direct columns from an earlier run of the same program; they were ~2.7 / ~6.5 ms in every run.) Best configuration
+is 8 threads (the 6800H has 8 physical cores / 16 logical): **roughly 25-50x faster than the direct path**, and
+output remains identical.
+
+**OpenCV `cv::multiply`** (OpenCV 4.13.0 from MSYS2, scale 1/255, same image): **0.134-0.137 ms**, exact result. It gives
+the same time with 1, 8 or the default 16 threads, i.e. it runs effectively single-threaded on this size. So:
+
+* single thread: optimised stochastic path 0.52-0.68 ms vs OpenCV 0.134 ms -> OpenCV is ~4-5x faster;
+* 8 threads: optimised stochastic path 0.105-0.134 ms vs single-thread OpenCV 0.134 ms -> about equal.
+
+**Read this comparison with care.** The stochastic path wins nothing by being stochastic: the speed comes from the lookup
+table and from threading. A binary multiply could use the very same table and the same threads, and cv::multiply split
+over 8 threads by hand would almost certainly be faster still (not measured). The honest conclusion is that the
+software version can be made *competitive*, not *better*; its case remains the hardware area/energy argument in
+`docs/hardware_mapping.md`. All timings: one machine, one compiler, one run.
 
 ### Rotation de-correlation (`results/rotation.csv`, N = 256, test grid 0.1..0.9)
 

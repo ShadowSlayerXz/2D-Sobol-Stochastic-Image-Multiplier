@@ -13,6 +13,7 @@
 #include <vector>
 #include "avx2_kernels.hpp"
 #include "sobol_generator.hpp"
+#include "thread_pool.hpp"
 
 struct Image { int w = 0, h = 0; std::vector<uint8_t> px; };   // interleaved RGB
 
@@ -40,6 +41,12 @@ Image stochasticProduct(const Image& a, const Image& b, const StreamBank& ba, co
 // Lookup-table variant: the stochastic product depends only on the (a, b) level pair, so compute all
 // 256x256 results once with the AND+popcount kernel (lut[a*256+b]) and then do one table read per
 // pixel. Output is bit-identical to stochasticProduct().
+// In-place, optionally multithreaded variants (pool may be null = single thread). `lut` must hold 65536
+// bytes; `out` must hold `count` bytes. No allocation, so repeated calls reuse the same buffers.
+void buildProductLutInto(const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel, uint8_t* lut,
+                         ThreadPool* pool = nullptr);
+void lookupProduct(const uint8_t* a, const uint8_t* b, uint8_t* out, size_t count, const uint8_t* lut,
+                   ThreadPool* pool = nullptr);
 std::vector<uint8_t> buildProductLut(const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel);
 Image stochasticProductLut(const Image& a, const Image& b, const std::vector<uint8_t>& lut);
 

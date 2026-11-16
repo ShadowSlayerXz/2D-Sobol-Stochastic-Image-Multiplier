@@ -1,6 +1,7 @@
 // sc_image.cpp — see sc_image.hpp.
 #include "sc_image.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <random>
@@ -34,11 +35,16 @@ Image centerCrop(const Image& im, int w, int h) {
 StreamBank buildBank(const std::vector<uint32_t>& ref) {
     StreamBank b; b.n = static_cast<int>(ref.size()); b.words = (b.n + 63) / 64;
     b.bits.assign(static_cast<size_t>(256) * b.words, 0);
-    for (int level = 0; level < 256; level++)
-        for (int k = 0; k < b.n; k++)
-            // ref/2^32 < level/255  <=>  ref*255 < level*2^32 (exact; level 255 -> all ones)
-            if (static_cast<uint64_t>(ref[k]) * 255u < (static_cast<uint64_t>(level) << 32))
-                b.bits[static_cast<size_t>(level) * b.words + k / 64] |= 1ull << (k % 64);
+    // bit k is set for level L iff ref_k*255 < L*2^32 (exact integer test), i.e. iff
+    // L >= t_k = floor(ref_k*255 / 2^32) + 1  (always in 1..255). So drop each bit into its
+    // first level t_k, then OR every level into the next: O(N + 256*W) instead of O(256*N).
+    for (int k = 0; k < b.n; k++) {
+        int t = static_cast<int>((static_cast<uint64_t>(ref[k]) * 255u) >> 32) + 1;
+        b.bits[static_cast<size_t>(t) * b.words + k / 64] |= 1ull << (k % 64);
+    }
+    for (int level = 1; level < 256; level++)
+        for (int j = 0; j < b.words; j++)
+            b.bits[static_cast<size_t>(level) * b.words + j] |= b.bits[static_cast<size_t>(level - 1) * b.words + j];
     return b;
 }
 
@@ -71,10 +77,36 @@ Image stochasticProduct(const Image& a, const Image& b, const StreamBank& ba, co
     return o;
 }
 
+void buildProductLutInto(const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel, uint8_t* lut,
+                         ThreadPool* pool) {
+    const int n = ba.n, W = ba.words;
+    std::vector<uint8_t> levelOf(n + 1);                      // count -> round(255*count/N), no per-entry divide
+    for (int c = 0; c <= n; c++) levelOf[c] = static_cast<uint8_t>((c * 255 + n / 2) / n);
+    auto row = [&](int a) {
+        const uint64_t* sa = ba.at(a);
+        for (int b = 0; b < 256; b++) lut[a * 256 + b] = levelOf[kernel(sa, bb.at(b), W)];
+    };
+    if (pool && pool->size() > 1) pool->run(64, [&](int g) { for (int a = g * 4; a < g * 4 + 4; a++) row(a); });
+    else for (int a = 0; a < 256; a++) row(a);
+}
+
+void lookupProduct(const uint8_t* a, const uint8_t* b, uint8_t* out, size_t count, const uint8_t* lut,
+                   ThreadPool* pool) {
+    auto span = [&](size_t lo, size_t hi) {
+        const uint8_t* __restrict pa = a; const uint8_t* __restrict pb = b;
+        const uint8_t* __restrict tl = lut; uint8_t* __restrict po = out;
+        for (size_t i = lo; i < hi; i++) po[i] = tl[(static_cast<size_t>(pa[i]) << 8) | pb[i]];
+    };
+    const size_t chunk = 1 << 16;                              // 64 KiB of pixels per task
+    if (pool && pool->size() > 1 && count > 4 * chunk) {
+        int tasks = static_cast<int>((count + chunk - 1) / chunk);
+        pool->run(tasks, [&](int t) { span(t * chunk, std::min(count, (t + 1) * chunk)); });
+    } else span(0, count);
+}
+
 std::vector<uint8_t> buildProductLut(const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel) {
     std::vector<uint8_t> lut(256 * 256);
-    for (int a = 0; a < 256; a++)
-        for (int b = 0; b < 256; b++) lut[a * 256 + b] = static_cast<uint8_t>(stochasticLevel(a, b, ba, bb, kernel));
+    buildProductLutInto(ba, bb, kernel, lut.data(), nullptr);
     return lut;
 }
 
