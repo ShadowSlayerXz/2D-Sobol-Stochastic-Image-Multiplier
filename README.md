@@ -113,7 +113,7 @@ an improvement over a plain digital shift.
 ## What could not be run / known limits
 
 * **OpenCV baseline**: code is written (`SC_HAVE_OPENCV`) but OpenCV is not installed here, so it was never
-  compiled or timed. The conventional baseline reported is the scalar integer multiply (~0.7 ms/image).
+  compiled or timed. The conventional baseline reported is the scalar integer multiply (~0.6 ms/image).
 * **Kodak / McMaster batch runs**: batch mode works (tested on the repo's 2 real x 4 synthetic images) but
   those datasets are not in the repo and were not downloaded.
 * **Linux/WSL, other CPUs, MSVC/Clang**: only the Windows/MinGW GCC build above was run.
