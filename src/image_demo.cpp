@@ -82,8 +82,8 @@ std::string cpuModel() {
         for (unsigned i = 0; i < 3; i++) __get_cpuid(0x80000002u + i, &r[i * 4], &r[i * 4 + 1], &r[i * 4 + 2], &r[i * 4 + 3]);
         std::string s(reinterpret_cast<char*>(r), 48);
         s = s.c_str();
-        size_t a = s.find_first_not_of(' ');
-        return a == std::string::npos ? "unknown" : s.substr(a);
+        size_t a = s.find_first_not_of(' '), b = s.find_last_not_of(' ');
+        return a == std::string::npos ? "unknown" : s.substr(a, b - a + 1);
     }
 #endif
     return "unknown";
