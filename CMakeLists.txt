@@ -88,3 +88,7 @@ add_test(NAME test_avx2_kernel COMMAND test_avx2_kernel)
 add_executable(test_image_path tests/test_image_path.cpp)
 target_link_libraries(test_image_path PRIVATE sobol)
 add_test(NAME test_image_path COMMAND test_image_path)
+
+# Rotation de-correlation, operation-aware correlation and selection-bias experiments.
+add_executable(run_extra src/extra_experiments.cpp)
+target_link_libraries(run_extra PRIVATE sobol)
