@@ -1,1 +1,5 @@
 .DS_Store
+build/
+documentation.md
+results/
+.cache/
