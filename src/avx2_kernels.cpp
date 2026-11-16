@@ -6,6 +6,11 @@
 #include <immintrin.h>
 #endif
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define SC_NEON_BUILD 1
+#include <arm_neon.h>
+#endif
+
 int andPopcountScalar(const uint64_t* a, const uint64_t* b, int words) {
     int count = 0;
     for (int j = 0; j < words; j++) count += __builtin_popcountll(a[j] & b[j]);
@@ -42,6 +47,36 @@ int andPopcountAvx2(const uint64_t* a, const uint64_t* b, int words) { return an
 bool avx2Compiled() { return false; }
 #endif
 
+#ifdef SC_NEON_BUILD
+// 128 stream bits per step: vandq_u64, vcntq_u8 (per-byte popcount), then pairwise-widening adds.
+// Two independent accumulators hide the latency of the add chain; 4 words (256 bits) per iteration
+// to mirror the AVX2 register width.
+int andPopcountNeon(const uint64_t* a, const uint64_t* b, int words) {
+    uint64x2_t acc0 = vdupq_n_u64(0), acc1 = vdupq_n_u64(0);
+    int j = 0;
+    for (; j + 4 <= words; j += 4) {
+        uint8x16_t v0 = vreinterpretq_u8_u64(vandq_u64(vld1q_u64(a + j), vld1q_u64(b + j)));
+        uint8x16_t v1 = vreinterpretq_u8_u64(vandq_u64(vld1q_u64(a + j + 2), vld1q_u64(b + j + 2)));
+        acc0 = vaddq_u64(acc0, vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(vcntq_u8(v0)))));
+        acc1 = vaddq_u64(acc1, vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(vcntq_u8(v1)))));
+    }
+    if (j + 2 <= words) {
+        uint8x16_t v = vreinterpretq_u8_u64(vandq_u64(vld1q_u64(a + j), vld1q_u64(b + j)));
+        acc0 = vaddq_u64(acc0, vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(vcntq_u8(v)))));
+        j += 2;
+    }
+    int count = static_cast<int>(vaddvq_u64(vaddq_u64(acc0, acc1)));
+    for (; j < words; j++) count += __builtin_popcountll(a[j] & b[j]);   // tail
+    return count;
+}
+bool neonCompiled() { return true; }
+bool neonSupported() { return true; }
+#else
+int andPopcountNeon(const uint64_t* a, const uint64_t* b, int words) { return andPopcountScalar(a, b, words); }
+bool neonCompiled() { return false; }
+bool neonSupported() { return false; }
+#endif
+
 bool avx2Supported() {
 #if defined(SC_AVX2_BUILD) && (defined(__GNUC__) || defined(__clang__))
     __builtin_cpu_init();
@@ -52,11 +87,23 @@ bool avx2Supported() {
 }
 
 KernelPath effectivePath(KernelPath requested) {
-    return (requested == KernelPath::AVX2 && avx2Supported()) ? KernelPath::AVX2 : KernelPath::Scalar;
+    if (requested == KernelPath::AVX2 && avx2Supported()) return KernelPath::AVX2;
+    if (requested == KernelPath::NEON && neonSupported()) return KernelPath::NEON;
+    return KernelPath::Scalar;
 }
 AndPopcountFn kernelFor(KernelPath path) {
-    return effectivePath(path) == KernelPath::AVX2 ? andPopcountAvx2 : andPopcountScalar;
+    switch (effectivePath(path)) {
+        case KernelPath::AVX2: return andPopcountAvx2;
+        case KernelPath::NEON: return andPopcountNeon;
+        default: return andPopcountScalar;
+    }
 }
-AndPopcountFn tunedKernel(int words) { return words >= 8 ? kernelFor(KernelPath::AVX2) : andPopcountScalar; }
-KernelPath bestPath() { return effectivePath(KernelPath::AVX2); }
-const char* pathName(KernelPath path) { return path == KernelPath::AVX2 ? "avx2" : "scalar"; }
+// x86: AVX2 only wins at >= 8 words. ARM64: NEON vcnt wins from 2 words up (see README, Apple Silicon).
+AndPopcountFn tunedKernel(int words) {
+    if (neonSupported()) return words >= 2 ? andPopcountNeon : andPopcountScalar;
+    return words >= 8 ? kernelFor(KernelPath::AVX2) : andPopcountScalar;
+}
+KernelPath bestPath() { return neonSupported() ? KernelPath::NEON : effectivePath(KernelPath::AVX2); }
+const char* pathName(KernelPath path) {
+    return path == KernelPath::AVX2 ? "avx2" : path == KernelPath::NEON ? "neon" : "scalar";
+}

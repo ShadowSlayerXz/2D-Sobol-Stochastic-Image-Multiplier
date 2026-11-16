@@ -223,7 +223,7 @@ bool runPair(const std::string& name, const Image& A, const Image& B, const std:
              std::ofstream& csv, std::ofstream& timingCsv, const std::string& envPrefix,
              const std::vector<Method>& methods, bool doTiming) {
     const int lengths[] = {128, 256, 1024};
-    AndPopcountFn fast = kernelFor(KernelPath::AVX2), scalar = kernelFor(KernelPath::Scalar);
+    AndPopcountFn fast = kernelFor(bestPath()), scalar = kernelFor(KernelPath::Scalar);
     fs::create_directories(outDir + "/images/" + name);
     Image exact = exactProduct(A, B);
     writePPM(outDir + "/images/" + name + "/exact.ppm", exact);
@@ -270,6 +270,7 @@ bool runPair(const std::string& name, const Image& A, const Image& B, const std:
         for (int n : lengths) {
             timePath(name, A, B, n, KernelPath::Scalar, timingCsv, envPrefix);
             timePath(name, A, B, n, KernelPath::AVX2, timingCsv, envPrefix);
+            if (neonSupported()) timePath(name, A, B, n, KernelPath::NEON, timingCsv, envPrefix);
             for (int th : {1, 4, 8, 16}) timeFast(name, A, B, n, th, timingCsv, envPrefix);
         }
 #ifdef SC_HAVE_OPENCV

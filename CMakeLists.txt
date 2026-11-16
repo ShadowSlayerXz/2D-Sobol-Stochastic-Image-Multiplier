@@ -88,6 +88,10 @@ add_executable(test_avx2_kernel tests/test_avx2_kernel.cpp)
 target_link_libraries(test_avx2_kernel PRIVATE sobol)
 add_test(NAME test_avx2_kernel COMMAND test_avx2_kernel)
 
+add_executable(test_neon_kernel tests/test_neon_kernel.cpp)
+target_link_libraries(test_neon_kernel PRIVATE sobol)
+add_test(NAME test_neon_kernel COMMAND test_neon_kernel)
+
 add_executable(test_image_path tests/test_image_path.cpp)
 target_link_libraries(test_image_path PRIVATE sobol)
 add_test(NAME test_image_path COMMAND test_image_path)

@@ -16,13 +16,17 @@
 #pragma once
 #include <cstdint>
 
-enum class KernelPath { Scalar, AVX2 };
+enum class KernelPath { Scalar, AVX2, NEON };
 
 // popcount(a[0..words) & b[0..words))
 using AndPopcountFn = int (*)(const uint64_t* a, const uint64_t* b, int words);
 
 int andPopcountScalar(const uint64_t* a, const uint64_t* b, int words);
 int andPopcountAvx2(const uint64_t* a, const uint64_t* b, int words);   // scalar if not compiled in
+
+int andPopcountNeon(const uint64_t* a, const uint64_t* b, int words);   // scalar if not an ARM64 build
+bool neonCompiled();    // built for ARM64 (NEON is mandatory there, so compiled == supported)
+bool neonSupported();
 
 bool avx2Compiled();    // was the AVX2 code path built into this binary?
 bool avx2Supported();   // compiled AND the running CPU reports AVX2 + POPCNT
