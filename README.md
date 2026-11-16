@@ -75,6 +75,16 @@ words is already cheap and one 256-bit vector (N = 256) or none (N = 128: tail o
 horizontal sum. Stream encoding/packing (0.05-0.45 ms) and Sobol generation (< 0.01 ms) are negligible next
 to the AND+popcount stage. One machine, one compiler, one run: treat the exact ratios as indicative.
 
+### Lookup-table optimisation (bit-identical output)
+
+The product of a channel depends only on its (a, b) level pair, so `buildProductLut()` computes all 65 536
+results once with the AND+popcount kernel and `stochasticProductLut()` does one table read per pixel
+(`lut_product` / `full_pipeline_lut` rows in `timing.csv`; `test_avx2_kernel` and `image_demo` check the output equals the
+direct path). Stage time, mean ms, scalar kernel (AVX2 kernel in the LUT build is within ~0.03 ms at N <= 256, ~0.2 ms faster at N = 1024):
+N=128: 2.17 -> 1.01; N=256: 2.57 -> 1.05; N=1024: 6.10 -> 1.39. Full pipeline at N=1024: 6.54 -> 1.84 ms (scalar), 4.90 -> 1.65 ms (AVX2).
+This is ~2.5x (N=256) to ~4.4x (N=1024) faster, but still ~7-10x slower than `cv::multiply` (0.14 ms). It is a
+software shortcut: it does not change the stochastic result or the hardware design.
+
 ### OpenCV baseline (OpenCV 4.13.0 from MSYS2, `cv::multiply` with scale 1/255, same 500x500x3 image)
 
 `cv::multiply`: **0.131 ms** mean (std 0.003, 15 reps), output identical to the exact product (MAE 0). That is about

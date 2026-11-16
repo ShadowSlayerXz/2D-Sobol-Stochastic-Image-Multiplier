@@ -71,6 +71,19 @@ Image stochasticProduct(const Image& a, const Image& b, const StreamBank& ba, co
     return o;
 }
 
+std::vector<uint8_t> buildProductLut(const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel) {
+    std::vector<uint8_t> lut(256 * 256);
+    for (int a = 0; a < 256; a++)
+        for (int b = 0; b < 256; b++) lut[a * 256 + b] = static_cast<uint8_t>(stochasticLevel(a, b, ba, bb, kernel));
+    return lut;
+}
+
+Image stochasticProductLut(const Image& a, const Image& b, const std::vector<uint8_t>& lut) {
+    Image o = a;
+    for (size_t i = 0; i < a.px.size(); i++) o.px[i] = lut[a.px[i] * 256 + b.px[i]];
+    return o;
+}
+
 ImageStats compareImages(const Image& got, const Image& exact) {
     double ae = 0, se = 0;
     for (size_t i = 0; i < got.px.size(); i++) {

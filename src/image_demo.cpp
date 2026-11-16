@@ -122,7 +122,7 @@ void timePath(const std::string& pair, const Image& A, const Image& B, int n, Ke
               std::ofstream& csv, const std::string& envPrefix) {
     KernelPath ran = effectivePath(requested);
     AndPopcountFn kernel = kernelFor(requested);
-    std::vector<double> tGen, tEnc, tAnd, tFull;
+    std::vector<double> tGen, tEnc, tAnd, tFull, tLut, tFullLut;
     volatile uint8_t sink = 0;
     for (int r = -WARMUPS; r < REPS; r++) {
         auto t0 = Clock::now();
@@ -135,7 +135,12 @@ void timePath(const std::string& pair, const Image& A, const Image& B, int n, Ke
         Image out = stochasticProduct(A, B, ba, bb, kernel);
         double a = msSince(t0);
         sink = sink ^ out.px[out.px.size() / 2];
-        if (r >= 0) { tGen.push_back(g); tEnc.push_back(e); tAnd.push_back(a); tFull.push_back(g + e + a); }
+        t0 = Clock::now();
+        Image outLut = stochasticProductLut(A, B, buildProductLut(ba, bb, kernel));
+        double l = msSince(t0);
+        if (outLut.px != out.px) std::fprintf(stderr, "LUT MISMATCH\n");
+        if (r >= 0) { tGen.push_back(g); tEnc.push_back(e); tAnd.push_back(a); tFull.push_back(g + e + a);
+                      tLut.push_back(l); tFullLut.push_back(g + e + l); }
     }
     (void)sink;
     auto emit = [&](const char* stage, const std::vector<double>& v) {
@@ -146,6 +151,7 @@ void timePath(const std::string& pair, const Image& A, const Image& B, int n, Ke
                     n, pathName(requested), pathName(ran), stage, t.mean, t.min, t.max, t.std);
     };
     emit("sobol_generate", tGen); emit("encode_pack", tEnc); emit("and_popcount", tAnd); emit("full_pipeline", tFull);
+    emit("lut_product", tLut); emit("full_pipeline_lut", tFullLut);
 }
 
 #ifdef SC_HAVE_OPENCV

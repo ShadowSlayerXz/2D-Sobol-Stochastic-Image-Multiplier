@@ -37,6 +37,12 @@ Image exactProduct(const Image& a, const Image& b);
 Image stochasticProduct(const Image& a, const Image& b, const StreamBank& ba, const StreamBank& bb,
                         AndPopcountFn kernel);
 
+// Lookup-table variant: the stochastic product depends only on the (a, b) level pair, so compute all
+// 256x256 results once with the AND+popcount kernel (lut[a*256+b]) and then do one table read per
+// pixel. Output is bit-identical to stochasticProduct().
+std::vector<uint8_t> buildProductLut(const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel);
+Image stochasticProductLut(const Image& a, const Image& b, const std::vector<uint8_t>& lut);
+
 // Per-channel stochastic result for a single level pair (used by tests / error analysis).
 inline int stochasticLevel(int a, int b, const StreamBank& ba, const StreamBank& bb, AndPopcountFn kernel) {
     int count = kernel(ba.at(a), bb.at(b), ba.words);

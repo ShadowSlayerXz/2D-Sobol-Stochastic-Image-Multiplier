@@ -53,6 +53,7 @@ int main() {
         StreamBank ba = buildBank(rp.x), bb = buildBank(rp.y);
         Image o1 = stochasticProduct(A, B, ba, bb, scalar), o2 = stochasticProduct(A, B, ba, bb, avx);
         CHECK(o1.px == o2.px, "image output differs at N=%d", n);
+        CHECK(stochasticProductLut(A, B, buildProductLut(ba, bb, avx)).px == o1.px, "LUT output differs at N=%d", n);
     }
 
     std::printf(failures ? "test_avx2_kernel: %d FAILURE(S)\n" : "test_avx2_kernel: all passed\n", failures);
