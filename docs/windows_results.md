@@ -132,3 +132,45 @@ Stage 2 (45 direction-number pairs from dims 1..10): dims (1,2) are near the top
 pair varies with N (e.g. best (1,10) at N=8, (5,8) at N=16, (1,2) at N=32, (2,5) at N=64, (1,7) at N=128,
 (1,4) at N=256) and some pairs are far worse (e.g. (1,5) at N=8, (8,9) at N=16, (2,8) at N=32/64).
 Full ranking per N is in `results/exp_log.txt`.
+
+## OpenCV `cv::multiply` vs the Sobol stochastic multiplier (all results)
+
+Same 500x500x3 image pair (real500 x real768 crop), same machine, 3 warm-up + 15 timed reps (45 for the threaded LUT rows). Source: `results/timing.csv`, `results/demo_log.txt`. Ratio = Sobol time / OpenCV single-thread time (0.134 ms); **<1 means Sobol is faster**.
+
+### OpenCV baseline (exact result, MAE vs exact = 0)
+
+| configuration | mean ms | min ms | std ms |
+|---|---|---|---|
+| default (16 threads reported) | 0.137 | 0.135 | 0.004 |
+| 1 thread | 0.134 | 0.133 | 0.002 |
+| 8 threads | 0.135 | 0.134 | 0.001 |
+
+OpenCV is flat across thread counts (effectively single-threaded at this size).
+
+### Sobol stochastic multiplier, full pipeline (Sobol generation + encoding + multiply), mean ms and ratio to OpenCV
+
+| N | direct scalar | direct AVX2 | LUT scalar | LUT AVX2 | fast 1 thr | fast 4 thr | fast 8 thr | fast 16 thr |
+|---|---|---|---|---|---|---|---|---|
+| 128 | 2.076 (15.5x) | 2.532 (18.9x) | 0.943 (7.0x) | 1.017 (7.6x) | 0.515 (3.8x) | 0.142 (1.1x) | 0.105 (0.8x) | 0.125 (0.9x) |
+| 256 | 2.635 (19.7x) | 2.948 (22.0x) | 1.018 (7.6x) | 1.044 (7.8x) | 0.579 (4.3x) | 0.151 (1.1x) | 0.105 (0.8x) | 0.129 (1.0x) |
+| 1024 | 6.318 (47.1x) | 4.310 (32.1x) | 1.350 (10.1x) | 1.138 (8.5x) | 0.677 (5.0x) | 0.194 (1.4x) | 0.134 (1.0x) | 0.166 (1.2x) |
+
+### Accuracy next to the timing (N = 1024, real500 x real768 crop)
+
+| method | MAE (0-255 levels) | PSNR dB | time |
+|---|---|---|---|
+| OpenCV `cv::multiply` (exact, rounded) | 0 | inf | 0.134 ms (1 thr) |
+| Sobol (1,2), fast 8 thr | 0.169 | 55.9 | 0.134 ms |
+| digital-shift Sobol, fast 8 thr | 0.149 | 56.4 | 0.134 ms |
+| random independent, fast 8 thr | 2.150 | 39.4 | 0.134 ms |
+
+(The fast path costs the same regardless of stream type, since the table and lookup dominate; stream choice only changes accuracy.)
+
+### Findings
+
+* **Single thread:** optimised Sobol 0.52 / 0.58 / 0.68 ms at N = 128 / 256 / 1024 vs OpenCV 0.134 ms, so OpenCV is about 3.8-5.0x faster.
+* **8 threads:** Sobol 0.105 / 0.105 / 0.134 ms vs single-thread OpenCV 0.134 ms: 0.8x, 0.8x and 1.0x, i.e. equal or slightly faster at N <= 256 and equal at N = 1024. OpenCV got no benefit from extra threads, so the comparison is thread-count-asymmetric.
+* **16 threads is slower than 8** (0.125-0.166 ms): the 6800H has 8 physical cores, so SMT adds overhead.
+* **Versus the direct (non-LUT) stochastic path** the optimisations give roughly 20-50x (e.g. N=1024: 6.3 ms scalar -> 0.134 ms).
+* **Caveat:** the speed comes from the product lookup table and threading, not from stochastic arithmetic. A binary multiply could use the same table and threads, and OpenCV split over 8 threads by hand was not measured and would likely win. The stochastic version is competitive, not better; its case is the hardware area/energy argument in `docs/hardware_mapping.md`.
+* One machine, one compiler, one run each; ratios are indicative.
